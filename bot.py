@@ -44,7 +44,11 @@ class CreativeXfameBot(commands.Bot):
 
     async def setup_hook(self):
 
+        print("🔧 Running database setup...")
+
         database.setup_database()
+
+        print("✅ Database setup finished!")
 
         guild = discord.Object(
             id=GUILD_ID
@@ -330,7 +334,7 @@ async def portal(
 class AccountModal(
     discord.ui.Modal,
     title="Add Social Media Account"
-):
+    ):
 
     username = discord.ui.TextInput(
         label="Account Username",
@@ -351,11 +355,56 @@ class AccountModal(
         interaction: discord.Interaction
     ):
 
+        # =====================================================
+        # DEBUG START
+        # =====================================================
+
+        print("")
+        print("🔵 =======================================")
+        print("🔵 ACCOUNT MODAL SUBMITTED")
+        print("🔵 =======================================")
+
+        print(
+            "🔵 Discord ID:",
+            str(interaction.user.id)
+        )
+
+        print(
+            "🔵 Discord Username:",
+            str(interaction.user)
+        )
+
+        print(
+            "🔵 Platform:",
+            self.platform
+        )
+
+        print(
+            "🔵 Raw Username:",
+            self.username.value
+        )
+
+        # =====================================================
+        # CLEAN USERNAME
+        # =====================================================
+
         username = self.username.value.strip()
-        username = username.replace(" ", "")
+
+        username = username.replace(
+            " ",
+            ""
+        )
+
         username = username.lstrip("@")
 
+        print(
+            "🔵 Clean Username:",
+            username
+        )
+
         if not username:
+
+            print("❌ USERNAME IS EMPTY")
 
             await interaction.response.send_message(
                 "❌ Please enter a valid username.",
@@ -366,16 +415,56 @@ class AccountModal(
 
         username = "@" + username
 
+        print(
+            "🔵 Final Username:",
+            username
+        )
+
+        # =====================================================
+        # DATABASE INSERT
+        # =====================================================
+
+        print(
+            "🔵 Calling database.add_account()..."
+        )
+
         try:
 
             account_id = database.add_account(
-                discord_id=str(interaction.user.id),
-                discord_username=str(interaction.user),
+                discord_id=str(
+                    interaction.user.id
+                ),
+                discord_username=str(
+                    interaction.user
+                ),
                 platform=self.platform,
                 username=username
             )
 
+            print(
+                "✅ database.add_account() SUCCESS"
+            )
+
+            print(
+                "✅ New Account ID:",
+                account_id
+            )
+
         except Exception as error:
+
+            print(
+                "❌ database.add_account() FAILED"
+            )
+
+            print(
+                "❌ ERROR TYPE:",
+                type(error).__name__
+            )
+
+            print(
+                "❌ ERROR:",
+                repr(error)
+            )
 
             await interaction.response.send_message(
                 f"❌ Database error:\n`{str(error)[:1000]}`",
@@ -383,6 +472,54 @@ class AccountModal(
             )
 
             return
+
+        # =====================================================
+        # VERIFY DATABASE
+        # =====================================================
+
+        print(
+            "🔎 Checking database immediately after INSERT..."
+        )
+
+        try:
+
+            check_accounts = database.get_user_accounts(
+                str(interaction.user.id)
+            )
+
+            print(
+                "🔎 Accounts after INSERT:"
+            )
+
+            print(
+                check_accounts
+            )
+
+        except Exception as error:
+
+            print(
+                "❌ Verification failed:"
+            )
+
+            print(
+                "❌ ERROR:",
+                repr(error)
+            )
+
+        print(
+            "🔵 ======================================="
+        )
+        print(
+            "🔵 ACCOUNT ADD PROCESS FINISHED"
+        )
+        print(
+            "🔵 ======================================="
+        )
+        print("")
+
+        # =====================================================
+        # SUCCESS MESSAGE
+        # =====================================================
 
         await interaction.response.send_message(
             f"""
@@ -451,8 +588,21 @@ class PlatformSelect(discord.ui.Select):
         interaction: discord.Interaction
     ):
 
+        print("")
+        print("🟡 PLATFORM SELECTED")
+        print(
+            "🟡 Discord ID:",
+            interaction.user.id
+        )
+        print(
+            "🟡 Platform:",
+            self.values[0]
+        )
+
         await interaction.response.send_modal(
-            AccountModal(self.values[0])
+            AccountModal(
+                self.values[0]
+            )
         )
 
 
@@ -485,6 +635,13 @@ async def add_account(
     interaction: discord.Interaction
 ):
 
+    print("")
+    print("🟣 /add_account COMMAND")
+    print(
+        "🟣 Discord ID:",
+        interaction.user.id
+    )
+
     await interaction.response.send_message(
         "### 📱 Add Your Social Media Account\n\n"
         "Select the platform you want to add.\n\n"
@@ -506,6 +663,15 @@ async def my_accounts(
     interaction: discord.Interaction
 ):
 
+    print("")
+    print("🔎 ===============================")
+    print("🔎 GET USER ACCOUNTS")
+    print("🔎 Database:", database.DATABASE)
+    print(
+        "🔎 Discord ID:",
+        repr(str(interaction.user.id))
+    )
+
     try:
 
         accounts = database.get_user_accounts(
@@ -514,12 +680,24 @@ async def my_accounts(
 
     except Exception as error:
 
+        print(
+            "❌ get_user_accounts ERROR:",
+            repr(error)
+        )
+
         await interaction.response.send_message(
             f"❌ Database error:\n`{str(error)[:1000]}`",
             ephemeral=True
         )
 
         return
+
+    print(
+        "🔎 MATCHING ACCOUNTS:",
+        accounts
+    )
+
+    print("🔎 ===============================")
 
     if not accounts:
 
@@ -546,7 +724,10 @@ async def my_accounts(
             platform,
             []
         ).append(
-            (account_id, username)
+            (
+                account_id,
+                username
+            )
         )
 
     for platform, platform_accounts in grouped.items():
@@ -560,7 +741,10 @@ async def my_accounts(
             )
 
         embed.add_field(
-            name=f"{platform} ({len(platform_accounts)} accounts)",
+            name=(
+                f"{platform} "
+                f"({len(platform_accounts)} accounts)"
+            ),
             value="\n".join(lines),
             inline=False
         )
@@ -737,7 +921,9 @@ async def export_accounts(
             writer.writerow(account)
 
         data = io.BytesIO(
-            output.getvalue().encode("utf-8-sig")
+            output.getvalue().encode(
+                "utf-8-sig"
+            )
         )
 
         file = discord.File(
@@ -793,7 +979,10 @@ def create_submission_embed(submission):
 
     embed.add_field(
         name="🔗 Google Drive",
-        value=f"[Open Submission]({submission['google_drive_link']})",
+        value=(
+            f"[Open Submission]"
+            f"({submission['google_drive_link']})"
+        ),
         inline=False
     )
 
@@ -911,8 +1100,6 @@ class PayoutModal(
             )
 
             return
-
-        # DM CLIPPER
 
         try:
 
@@ -1040,8 +1227,6 @@ class DeclineModal(
 
             return
 
-        # DM CLIPPER
-
         try:
 
             user = await bot.fetch_user(
@@ -1141,7 +1326,9 @@ class SubmissionReviewView(
             return
 
         await interaction.response.send_modal(
-            PayoutModal(self.submission_id)
+            PayoutModal(
+                self.submission_id
+            )
         )
 
 
@@ -1188,7 +1375,9 @@ class SubmissionReviewView(
             return
 
         await interaction.response.send_modal(
-            DeclineModal(self.submission_id)
+            DeclineModal(
+                self.submission_id
+            )
         )
 
 
@@ -1398,7 +1587,9 @@ async def export_submissions(
                 ])
 
         data = io.BytesIO(
-            output.getvalue().encode("utf-8-sig")
+            output.getvalue().encode(
+                "utf-8-sig"
+            )
         )
 
         file = discord.File(
@@ -1415,8 +1606,13 @@ async def export_submissions(
 
     except Exception as error:
 
-        print("❌ EXPORT SUBMISSIONS ERROR:")
-        print(error)
+        print(
+            "❌ EXPORT SUBMISSIONS ERROR:"
+        )
+
+        print(
+            repr(error)
+        )
 
         await interaction.response.send_message(
             f"❌ Export failed:\n`{str(error)[:1500]}`",
@@ -1445,5 +1641,7 @@ if GUILD_ID == 0:
 # =========================================================
 # START
 # =========================================================
+
+print("🚀 Starting CreativeXfame Bot...")
 
 bot.run(TOKEN)
