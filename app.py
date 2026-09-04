@@ -39,6 +39,7 @@ load_dotenv(
 
 import database
 
+database.setup_database()
 
 # =========================================================
 # INITIALIZE DATABASE
