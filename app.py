@@ -710,7 +710,9 @@ def accounts():
         "discord_id"
     ]
 
-
+    print("🌐 PORTAL DISCORD ID:", discord_id)
+    print("🌐 PORTAL ACCOUNTS:", database.get_user_accounts(discord_id))
+   
     try:
 
         user_accounts = (
