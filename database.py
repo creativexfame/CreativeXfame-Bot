@@ -12,6 +12,7 @@ DATABASE = os.path.join(
     "CreativeXfame.db"
 )
 
+print("🗄️ DATABASE PATH:", DATABASE)
 
 # =========================================================
 # DATABASE CONNECTION
