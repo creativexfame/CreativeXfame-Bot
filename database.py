@@ -14,13 +14,19 @@ DATABASE = os.path.join(
 
 print("🗄️ DATABASE PATH:", DATABASE)
 
+
 # =========================================================
 # DATABASE CONNECTION
 # =========================================================
 
 def connect():
+
     connection = sqlite3.connect(DATABASE)
-    connection.execute("PRAGMA foreign_keys = ON")
+
+    connection.execute(
+        "PRAGMA foreign_keys = ON"
+    )
+
     return connection
 
 
@@ -36,7 +42,9 @@ def setup_database():
 
         cursor = connection.cursor()
 
-        cursor.execute("PRAGMA foreign_keys = OFF")
+        cursor.execute(
+            "PRAGMA foreign_keys = OFF"
+        )
 
         # =====================================================
         # ACCOUNTS TABLE
@@ -49,7 +57,9 @@ def setup_database():
             AND name = 'accounts'
         """)
 
-        accounts_exists = cursor.fetchone() is not None
+        accounts_exists = (
+            cursor.fetchone() is not None
+        )
 
         if not accounts_exists:
 
@@ -64,6 +74,8 @@ def setup_database():
                 )
             """)
 
+            print("✅ Accounts table created!")
+
         else:
 
             cursor.execute("""
@@ -77,7 +89,9 @@ def setup_database():
 
             if "content_type" in columns:
 
-                print("🔄 Updating accounts table...")
+                print(
+                    "🔄 Updating accounts table..."
+                )
 
                 cursor.execute("""
                     CREATE TABLE accounts_new (
@@ -118,7 +132,9 @@ def setup_database():
                     RENAME TO accounts
                 """)
 
-                print("✅ content_type removed successfully!")
+                print(
+                    "✅ content_type removed successfully!"
+                )
 
 
         # =====================================================
@@ -170,7 +186,9 @@ def setup_database():
                 WHERE week_start IS NULL
             """)
 
-            old_submissions = cursor.fetchall()
+            old_submissions = (
+                cursor.fetchall()
+            )
 
             for submission_id, created_at in old_submissions:
 
@@ -180,8 +198,11 @@ def setup_database():
                         created_at
                     ).date()
 
-                    monday = date - timedelta(
-                        days=date.weekday()
+                    monday = (
+                        date
+                        - timedelta(
+                            days=date.weekday()
+                        )
                     )
 
                     cursor.execute("""
@@ -194,6 +215,7 @@ def setup_database():
                     ))
 
                 except Exception:
+
                     pass
 
 
@@ -208,7 +230,9 @@ def setup_database():
                 ADD COLUMN payout TEXT
             """)
 
-            print("✅ payout column added!")
+            print(
+                "✅ payout column added!"
+            )
 
 
         # =====================================================
@@ -295,13 +319,18 @@ def setup_database():
 
         connection.commit()
 
-        print("✅ Database setup completed!")
+        print(
+            "✅ Database setup completed!"
+        )
 
     except Exception as error:
 
         connection.rollback()
 
-        print("❌ Database setup error:")
+        print(
+            "❌ Database setup error:"
+        )
+
         print(error)
 
         raise
@@ -327,6 +356,27 @@ def add_account(
 
     try:
 
+        print("")
+        print("➕ ===============================")
+        print("➕ ADD ACCOUNT")
+        print("➕ Database:", DATABASE)
+        print(
+            "➕ Discord ID:",
+            repr(str(discord_id))
+        )
+        print(
+            "➕ Discord Username:",
+            repr(str(discord_username))
+        )
+        print(
+            "➕ Platform:",
+            repr(str(platform))
+        )
+        print(
+            "➕ Username:",
+            repr(str(username))
+        )
+
         cursor.execute("""
             INSERT INTO accounts (
                 discord_id,
@@ -346,11 +396,58 @@ def add_account(
 
         connection.commit()
 
-        return cursor.lastrowid
+        account_id = cursor.lastrowid
 
-    except Exception:
+        print(
+            "✅ ACCOUNT SAVED"
+        )
+
+        print(
+            "✅ Account ID:",
+            account_id
+        )
+
+
+        # =================================================
+        # CONFIRM ACCOUNT AFTER INSERT
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                discord_id,
+                discord_username,
+                platform,
+                username
+            FROM accounts
+            WHERE id = ?
+        """, (
+            account_id,
+        ))
+
+        saved_account = cursor.fetchone()
+
+        print(
+            "✅ SAVED ACCOUNT:",
+            saved_account
+        )
+
+        print(
+            "➕ ==============================="
+        )
+        print("")
+
+        return account_id
+
+    except Exception as error:
 
         connection.rollback()
+
+        print(
+            "❌ ADD ACCOUNT ERROR:",
+            error
+        )
+
         raise
 
     finally:
@@ -367,24 +464,94 @@ def get_user_accounts(discord_id):
     connection = connect()
     cursor = connection.cursor()
 
-    cursor.execute("""
-        SELECT
-            id,
-            platform,
-            username,
-            created_at
-        FROM accounts
-        WHERE discord_id = ?
-        ORDER BY id ASC
-    """, (
-        str(discord_id),
-    ))
+    try:
 
-    accounts = cursor.fetchall()
+        print("")
+        print("🔎 ===============================")
+        print("🔎 GET USER ACCOUNTS")
 
-    connection.close()
+        print(
+            "🔎 Database:",
+            DATABASE
+        )
 
-    return accounts
+        print(
+            "🔎 Discord ID:",
+            repr(str(discord_id))
+        )
+
+
+        # =================================================
+        # DEBUG - SHOW ALL ACCOUNTS
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                discord_id,
+                discord_username,
+                platform,
+                username
+            FROM accounts
+            ORDER BY id ASC
+        """)
+
+        all_accounts = cursor.fetchall()
+
+        print(
+            "🔎 ALL ACCOUNTS IN THIS DATABASE:"
+        )
+
+        if all_accounts:
+
+            for account in all_accounts:
+
+                print(
+                    "   ",
+                    account
+                )
+
+        else:
+
+            print(
+                "   ❌ NO ACCOUNTS FOUND"
+            )
+
+
+        # =================================================
+        # GET CURRENT USER ACCOUNTS
+        # =================================================
+
+        cursor.execute("""
+            SELECT
+                id,
+                platform,
+                username,
+                created_at
+            FROM accounts
+            WHERE discord_id = ?
+            ORDER BY id ASC
+        """, (
+            str(discord_id),
+        ))
+
+        accounts = cursor.fetchall()
+
+        print(
+            "🔎 MATCHING ACCOUNTS:",
+            accounts
+        )
+
+        print(
+            "🔎 ==============================="
+        )
+        print("")
+
+        return accounts
+
+    finally:
+
+        connection.close()
 
 
 # =========================================================
@@ -458,6 +625,7 @@ def delete_account(
     except Exception:
 
         connection.rollback()
+
         raise
 
     finally:
@@ -473,8 +641,11 @@ def get_current_week_start():
 
     today = datetime.now().date()
 
-    monday = today - timedelta(
-        days=today.weekday()
+    monday = (
+        today
+        - timedelta(
+            days=today.weekday()
+        )
     )
 
     return monday.isoformat()
@@ -497,9 +668,6 @@ def create_submission(
 
     try:
 
-        # IMPORTANT:
-        # Do not allow creation when portal is closed.
-
         cursor.execute("""
             SELECT value
             FROM settings
@@ -515,7 +683,10 @@ def create_submission(
             )
 
 
-        week_start = get_current_week_start()
+        week_start = (
+            get_current_week_start()
+        )
+
 
         total_views = sum(
             int(account["views"])
@@ -584,6 +755,7 @@ def create_submission(
     except Exception:
 
         connection.rollback()
+
         raise
 
     finally:
@@ -626,6 +798,7 @@ def get_submission(submission_id):
     if not submission:
 
         connection.close()
+
         return None
 
 
@@ -648,20 +821,49 @@ def get_submission(submission_id):
 
 
     return {
-        "id": submission[0],
-        "discord_id": submission[1],
-        "discord_username": submission[2],
-        "whop_username": submission[3],
-        "google_drive_link": submission[4],
-        "total_views": submission[5],
-        "status": submission[6],
-        "created_at": submission[7],
-        "week_start": submission[8],
-        "payout": submission[9],
-        "reviewed_at": submission[10],
-        "reviewed_by": submission[11],
-        "decline_reason": submission[12],
-        "accounts": accounts
+
+        "id":
+            submission[0],
+
+        "discord_id":
+            submission[1],
+
+        "discord_username":
+            submission[2],
+
+        "whop_username":
+            submission[3],
+
+        "google_drive_link":
+            submission[4],
+
+        "total_views":
+            submission[5],
+
+        "status":
+            submission[6],
+
+        "created_at":
+            submission[7],
+
+        "week_start":
+            submission[8],
+
+        "payout":
+            submission[9],
+
+        "reviewed_at":
+            submission[10],
+
+        "reviewed_by":
+            submission[11],
+
+        "decline_reason":
+            submission[12],
+
+        "accounts":
+            accounts
+
     }
 
 
@@ -838,7 +1040,9 @@ def update_submission_status(
             str(status),
             payout,
             datetime.now().isoformat(),
-            str(reviewed_by) if reviewed_by else None,
+            str(reviewed_by)
+            if reviewed_by
+            else None,
             decline_reason,
             int(submission_id)
         ))
@@ -852,6 +1056,7 @@ def update_submission_status(
     except Exception:
 
         connection.rollback()
+
         raise
 
     finally:
@@ -870,7 +1075,11 @@ def set_submissions_status(is_open):
 
     try:
 
-        value = "1" if is_open else "0"
+        value = (
+            "1"
+            if is_open
+            else "0"
+        )
 
         cursor.execute("""
             INSERT OR REPLACE INTO settings (
@@ -890,6 +1099,7 @@ def set_submissions_status(is_open):
     except Exception:
 
         connection.rollback()
+
         raise
 
     finally:
@@ -917,6 +1127,7 @@ def are_submissions_open():
     connection.close()
 
     if not result:
+
         return True
 
     return result[0] == "1"
