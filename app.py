@@ -10,6 +10,7 @@ import html
 
 from flask import Flask, redirect, request, session, render_template
 from dotenv import load_dotenv
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 # =========================================================
@@ -17,9 +18,7 @@ from dotenv import load_dotenv
 # =========================================================
 
 BASE_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
+    os.path.abspath(__file__)
 )
 
 sys.path.insert(0, BASE_DIR)
@@ -33,6 +32,7 @@ load_dotenv(
     os.path.join(BASE_DIR, ".env")
 )
 
+
 import database
 
 
@@ -41,6 +41,16 @@ import database
 # =========================================================
 
 app = Flask(__name__)
+
+# Render is behind a proxy.
+# This allows Flask to correctly understand HTTPS.
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,
+    x_proto=1,
+    x_host=1
+)
+
 
 app.secret_key = os.getenv(
     "PORTAL_SECRET_KEY",
@@ -61,29 +71,19 @@ DISCORD_CLIENT_SECRET = os.getenv(
 )
 
 
-# =========================================================
-# REDIRECT URI
-# =========================================================
+# IMPORTANT:
+# Put this exact URL in Render Environment Variables:
 #
-# Render:
-# DISCORD_REDIRECT_URI =
-# https://xfame-bot.onrender.com/callback
+# DISCORD_REDIRECT_URI=
+# https://creativexfame-bot.onrender.com/callback
 #
-# Local PC:
-# http://127.0.0.1:5000/callback
-#
-# Render Environment Variable takes priority.
-# =========================================================
+# If your Render URL is different, use your EXACT Render URL.
 
 REDIRECT_URI = os.getenv(
     "DISCORD_REDIRECT_URI",
-   "https://xfame-bot.onrender.com/callback"
+    "https://creativexfame-bot.onrender.com/callback"
 )
 
-
-# =========================================================
-# DISCORD URLS
-# =========================================================
 
 DISCORD_AUTHORIZE_URL = (
     "https://discord.com/oauth2/authorize"
@@ -127,7 +127,6 @@ def home():
 
     return """
     <!DOCTYPE html>
-
     <html>
 
     <head>
@@ -197,9 +196,29 @@ def login():
         <h2>❌ Configuration Error</h2>
 
         <p>
-            DISCORD_CLIENT_ID is missing.
+            DISCORD_CLIENT_ID is missing from Render Environment Variables.
         </p>
+
+        <a href="/">
+            Back to Portal
+        </a>
         """
+
+
+    if not DISCORD_CLIENT_SECRET:
+
+        return """
+        <h2>❌ Configuration Error</h2>
+
+        <p>
+            DISCORD_CLIENT_SECRET is missing from Render Environment Variables.
+        </p>
+
+        <a href="/">
+            Back to Portal
+        </a>
+        """
+
 
     if not REDIRECT_URI:
 
@@ -209,6 +228,10 @@ def login():
         <p>
             DISCORD_REDIRECT_URI is missing.
         </p>
+
+        <a href="/">
+            Back to Portal
+        </a>
         """
 
 
@@ -255,7 +278,10 @@ def login():
 # DISCORD CALLBACK
 # =========================================================
 
-@app.route("/callback")
+@app.route(
+    "/callback",
+    methods=["GET"]
+)
 def callback():
 
     code = request.args.get(
@@ -279,57 +305,85 @@ def callback():
     )
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # DISCORD ERROR
-    # =====================================================
+    # -----------------------------------------------------
 
     if oauth_error:
 
         return f"""
-        <h2>
-            ❌ Discord Authorization Failed
-        </h2>
+        <!DOCTYPE html>
 
-        <p>
-            <strong>Error:</strong>
-            {safe_text(oauth_error)}
-        </p>
+        <html>
 
-        <p>
-            <strong>Description:</strong>
-            {safe_text(oauth_error_description)}
-        </p>
+        <head>
+            <title>Discord Login Error</title>
+        </head>
 
-        <a href="/">
-            Back to Portal
-        </a>
+        <body>
+
+            <h2>
+                ❌ Discord Authorization Failed
+            </h2>
+
+            <p>
+                <strong>Error:</strong>
+                {safe_text(oauth_error)}
+            </p>
+
+            <p>
+                <strong>Description:</strong>
+                {safe_text(oauth_error_description)}
+            </p>
+
+            <a href="/">
+                Back to Portal
+            </a>
+
+        </body>
+
+        </html>
         """
 
 
-    # =====================================================
-    # CODE CHECK
-    # =====================================================
+    # -----------------------------------------------------
+    # NO CODE
+    # -----------------------------------------------------
 
     if not code:
 
         return """
-        <h2>
-            ❌ Discord Login Failed
-        </h2>
+        <!DOCTYPE html>
 
-        <p>
-            No authorization code received.
-        </p>
+        <html>
 
-        <a href="/">
-            Back to Portal
-        </a>
+        <head>
+            <title>Discord Login Error</title>
+        </head>
+
+        <body>
+
+            <h2>
+                ❌ Discord Login Failed
+            </h2>
+
+            <p>
+                No authorization code received.
+            </p>
+
+            <a href="/">
+                Back to Portal
+            </a>
+
+        </body>
+
+        </html>
         """
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # STATE CHECK
-    # =====================================================
+    # -----------------------------------------------------
 
     if (
         not returned_state
@@ -337,17 +391,35 @@ def callback():
     ):
 
         return """
-        <h2>
-            ❌ Security Check Failed
-        </h2>
+        <!DOCTYPE html>
 
-        <p>
-            OAuth state did not match.
-        </p>
+        <html>
 
-        <a href="/">
-            Try Again
-        </a>
+        <head>
+            <title>Security Error</title>
+        </head>
+
+        <body>
+
+            <h2>
+                ❌ Security Check Failed
+            </h2>
+
+            <p>
+                OAuth state did not match.
+            </p>
+
+            <p>
+                Please go back and try Discord login again.
+            </p>
+
+            <a href="/">
+                Try Again
+            </a>
+
+        </body>
+
+        </html>
         """
 
 
@@ -357,9 +429,9 @@ def callback():
     )
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # CLIENT ID CHECK
-    # =====================================================
+    # -----------------------------------------------------
 
     if not DISCORD_CLIENT_ID:
 
@@ -367,12 +439,16 @@ def callback():
         <h2>
             ❌ Client ID Missing
         </h2>
+
+        <a href="/">
+            Back to Portal
+        </a>
         """
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # CLIENT SECRET CHECK
-    # =====================================================
+    # -----------------------------------------------------
 
     if not DISCORD_CLIENT_SECRET:
 
@@ -380,12 +456,16 @@ def callback():
         <h2>
             ❌ Client Secret Missing
         </h2>
+
+        <a href="/">
+            Back to Portal
+        </a>
         """
 
 
-    # =====================================================
-    # BASIC AUTH
-    # =====================================================
+    # -----------------------------------------------------
+    # TOKEN REQUEST
+    # -----------------------------------------------------
 
     credentials = (
         f"{DISCORD_CLIENT_ID}:"
@@ -399,10 +479,6 @@ def callback():
         ).decode("utf-8")
     )
 
-
-    # =====================================================
-    # TOKEN REQUEST
-    # =====================================================
 
     token_data = urllib.parse.urlencode({
 
@@ -441,10 +517,6 @@ def callback():
 
     )
 
-
-    # =====================================================
-    # TOKEN EXCHANGE
-    # =====================================================
 
     try:
 
@@ -500,51 +572,79 @@ def callback():
 
 
         return f"""
-        <h1>
-            ❌ Token Exchange Failed
-        </h1>
+        <!DOCTYPE html>
 
-        <p>
-            HTTP Status:
-            <strong>{e.code}</strong>
-        </p>
+        <html>
 
-        <p>
-            Discord Error:
-            {safe_text(error_name)}
-        </p>
+        <head>
+            <title>Token Error</title>
+        </head>
 
-        <p>
-            Description:
-            {safe_text(error_description)}
-        </p>
+        <body>
 
-        <a href="/">
-            Back to Portal
-        </a>
+            <h1>
+                ❌ Token Exchange Failed
+            </h1>
+
+            <p>
+                HTTP Status:
+                <strong>{e.code}</strong>
+            </p>
+
+            <p>
+                Discord Error:
+                {safe_text(error_name)}
+            </p>
+
+            <p>
+                Description:
+                {safe_text(error_description)}
+            </p>
+
+            <a href="/">
+                Back to Portal
+            </a>
+
+        </body>
+
+        </html>
         """
 
 
     except Exception as e:
 
         return f"""
-        <h2>
-            ❌ Unexpected Error
-        </h2>
+        <!DOCTYPE html>
 
-        <p>
-            {safe_text(e)}
-        </p>
+        <html>
 
-        <a href="/">
-            Back to Portal
-        </a>
+        <head>
+            <title>Unexpected Error</title>
+        </head>
+
+        <body>
+
+            <h2>
+                ❌ Unexpected Error
+            </h2>
+
+            <p>
+                {safe_text(e)}
+            </p>
+
+            <a href="/">
+                Back to Portal
+            </a>
+
+        </body>
+
+        </html>
         """
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # ACCESS TOKEN
-    # =====================================================
+    # -----------------------------------------------------
 
     access_token = token_response.get(
         "access_token"
@@ -558,15 +658,19 @@ def callback():
             ❌ Access Token Missing
         </h2>
 
+        <p>
+            Discord did not return an access token.
+        </p>
+
         <a href="/">
             Back to Portal
         </a>
         """
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # GET DISCORD USER
-    # =====================================================
+    # -----------------------------------------------------
 
     user_request = urllib.request.Request(
 
@@ -622,12 +726,34 @@ def callback():
         """
 
 
-    # =====================================================
-    # SAVE USER SESSION
-    # =====================================================
+    # -----------------------------------------------------
+    # SAVE DISCORD USER
+    # -----------------------------------------------------
+
+    discord_user_id = user_data.get(
+        "id"
+    )
+
+
+    if not discord_user_id:
+
+        return """
+        <h2>
+            ❌ Discord User ID Missing
+        </h2>
+
+        <p>
+            Could not retrieve your Discord account.
+        </p>
+
+        <a href="/">
+            Back to Portal
+        </a>
+        """
+
 
     session["discord_id"] = str(
-        user_data.get("id")
+        discord_user_id
     )
 
 
@@ -697,9 +823,9 @@ def accounts():
 )
 def submit():
 
-    # =====================================================
+    # -----------------------------------------------------
     # LOGIN CHECK
-    # =====================================================
+    # -----------------------------------------------------
 
     if "discord_id" not in session:
 
@@ -708,9 +834,9 @@ def submit():
         )
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # PORTAL STATUS
-    # =====================================================
+    # -----------------------------------------------------
 
     if not database.are_submissions_open():
 
@@ -800,9 +926,9 @@ def submit():
         )
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # GET
-    # =====================================================
+    # -----------------------------------------------------
 
     if request.method == "GET":
 
@@ -819,9 +945,9 @@ def submit():
         )
 
 
-    # =====================================================
-    # SECOND STATUS CHECK
-    # =====================================================
+    # -----------------------------------------------------
+    # POST
+    # -----------------------------------------------------
 
     if not database.are_submissions_open():
 
@@ -836,10 +962,6 @@ def submit():
         </p>
         """
 
-
-    # =====================================================
-    # FORM DATA
-    # =====================================================
 
     whop_username = (
         request.form
@@ -895,10 +1017,6 @@ def submit():
         )
 
 
-    # =====================================================
-    # ACCOUNT VIEWS
-    # =====================================================
-
     account_views = []
 
 
@@ -938,7 +1056,6 @@ def submit():
 
 
             if views < 0:
-
                 raise ValueError
 
 
@@ -980,9 +1097,9 @@ def submit():
         )
 
 
-    # =====================================================
+    # -----------------------------------------------------
     # CREATE SUBMISSION
-    # =====================================================
+    # -----------------------------------------------------
 
     try:
 
@@ -1016,12 +1133,7 @@ def submit():
         """
 
 
-    except Exception as e:
-
-        print(
-            "SUBMISSION ERROR:",
-            e
-        )
+    except Exception:
 
         return render_template(
 
@@ -1038,10 +1150,6 @@ def submit():
 
         )
 
-
-    # =====================================================
-    # SUCCESS
-    # =====================================================
 
     submission = (
         database.get_submission(
@@ -1074,11 +1182,50 @@ def logout():
 
 
 # =========================================================
-# RUN LOCAL
+# HEALTH CHECK
+# =========================================================
+
+@app.route("/health")
+def health():
+
+    return "OK", 200
+
+
+# =========================================================
+# CALLBACK TEST
+# =========================================================
+
+@app.route("/callback-test")
+def callback_test():
+
+    return """
+    <h1>✅ Callback route is working</h1>
+
+    <p>
+        Your Flask application can receive requests
+        on the callback route.
+    </p>
+
+    <p>
+        Production callback:
+        <strong>/callback</strong>
+    </p>
+    """
+
+
+# =========================================================
+# RUN
 # =========================================================
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
+
+    port = int(
+        os.getenv(
+            "PORT",
+            "5000"
+        )
+    )
+
     app.run(
         host="0.0.0.0",
         port=port,
