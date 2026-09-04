@@ -1,297 +1,71 @@
 import os
-import sqlite3
 from datetime import datetime, timedelta
 
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# =========================================================
-# DATABASE PATH
-# =========================================================
-
-DATABASE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "CreativeXfame.db"
-)
-
-print("🗄️ DATABASE PATH:", DATABASE)
-
-
-# =========================================================
-# DATABASE CONNECTION
-# =========================================================
-
-def connect():
-
-    connection = sqlite3.connect(DATABASE)
-
-    connection.execute(
-        "PRAGMA foreign_keys = ON"
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is not set. Set the Supabase PostgreSQL connection string "
+        "in your local .env and in Render Environment Variables."
     )
 
-    return connection
+try:
+    import psycopg2
+except ImportError as e:
+    raise RuntimeError(
+        "psycopg2 is not installed. Run: pip install psycopg2-binary"
+    ) from e
 
+print("🗄️ DATABASE: Supabase PostgreSQL")
 
-# =========================================================
-# SETUP DATABASE
-# =========================================================
+def connect():
+    return psycopg2.connect(DATABASE_URL)
 
 def setup_database():
-
-    connection = sqlite3.connect(DATABASE)
-
+    connection = connect()
     try:
-
         cursor = connection.cursor()
 
-        cursor.execute(
-            "PRAGMA foreign_keys = OFF"
-        )
-
-        # =====================================================
-        # ACCOUNTS TABLE
-        # =====================================================
-
         cursor.execute("""
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table'
-            AND name = 'accounts'
+            CREATE TABLE IF NOT EXISTS accounts (
+                id SERIAL PRIMARY KEY,
+                discord_id TEXT NOT NULL,
+                discord_username TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                username TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
         """)
-
-        accounts_exists = (
-            cursor.fetchone() is not None
-        )
-
-        if not accounts_exists:
-
-            cursor.execute("""
-                CREATE TABLE accounts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    discord_id TEXT NOT NULL,
-                    discord_username TEXT NOT NULL,
-                    platform TEXT NOT NULL,
-                    username TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-            """)
-
-            print("✅ Accounts table created!")
-
-        else:
-
-            cursor.execute("""
-                PRAGMA table_info(accounts)
-            """)
-
-            columns = [
-                row[1]
-                for row in cursor.fetchall()
-            ]
-
-            if "content_type" in columns:
-
-                print(
-                    "🔄 Updating accounts table..."
-                )
-
-                cursor.execute("""
-                    CREATE TABLE accounts_new (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        discord_id TEXT NOT NULL,
-                        discord_username TEXT NOT NULL,
-                        platform TEXT NOT NULL,
-                        username TEXT NOT NULL,
-                        created_at TEXT NOT NULL
-                    )
-                """)
-
-                cursor.execute("""
-                    INSERT INTO accounts_new (
-                        id,
-                        discord_id,
-                        discord_username,
-                        platform,
-                        username,
-                        created_at
-                    )
-                    SELECT
-                        id,
-                        discord_id,
-                        discord_username,
-                        platform,
-                        username,
-                        created_at
-                    FROM accounts
-                """)
-
-                cursor.execute("""
-                    DROP TABLE accounts
-                """)
-
-                cursor.execute("""
-                    ALTER TABLE accounts_new
-                    RENAME TO accounts
-                """)
-
-                print(
-                    "✅ content_type removed successfully!"
-                )
-
-
-        # =====================================================
-        # SUBMISSIONS TABLE
-        # =====================================================
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS submissions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 discord_id TEXT NOT NULL,
                 discord_username TEXT NOT NULL,
                 whop_username TEXT NOT NULL,
                 google_drive_link TEXT NOT NULL,
                 total_views INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'Pending',
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                week_start TEXT,
+                payout TEXT,
+                reviewed_at TEXT,
+                reviewed_by TEXT,
+                decline_reason TEXT
             )
         """)
-
-
-        # =====================================================
-        # CHECK SUBMISSION COLUMNS
-        # =====================================================
-
-        cursor.execute("""
-            PRAGMA table_info(submissions)
-        """)
-
-        submission_columns = [
-            row[1]
-            for row in cursor.fetchall()
-        ]
-
-
-        # =====================================================
-        # ADD WEEK_START
-        # =====================================================
-
-        if "week_start" not in submission_columns:
-
-            cursor.execute("""
-                ALTER TABLE submissions
-                ADD COLUMN week_start TEXT
-            """)
-
-            cursor.execute("""
-                SELECT id, created_at
-                FROM submissions
-                WHERE week_start IS NULL
-            """)
-
-            old_submissions = (
-                cursor.fetchall()
-            )
-
-            for submission_id, created_at in old_submissions:
-
-                try:
-
-                    date = datetime.fromisoformat(
-                        created_at
-                    ).date()
-
-                    monday = (
-                        date
-                        - timedelta(
-                            days=date.weekday()
-                        )
-                    )
-
-                    cursor.execute("""
-                        UPDATE submissions
-                        SET week_start = ?
-                        WHERE id = ?
-                    """, (
-                        monday.isoformat(),
-                        submission_id
-                    ))
-
-                except Exception:
-
-                    pass
-
-
-        # =====================================================
-        # ADD PAYOUT
-        # =====================================================
-
-        if "payout" not in submission_columns:
-
-            cursor.execute("""
-                ALTER TABLE submissions
-                ADD COLUMN payout TEXT
-            """)
-
-            print(
-                "✅ payout column added!"
-            )
-
-
-        # =====================================================
-        # ADD REVIEWED_AT
-        # =====================================================
-
-        if "reviewed_at" not in submission_columns:
-
-            cursor.execute("""
-                ALTER TABLE submissions
-                ADD COLUMN reviewed_at TEXT
-            """)
-
-
-        # =====================================================
-        # ADD REVIEWED_BY
-        # =====================================================
-
-        if "reviewed_by" not in submission_columns:
-
-            cursor.execute("""
-                ALTER TABLE submissions
-                ADD COLUMN reviewed_by TEXT
-            """)
-
-
-        # =====================================================
-        # ADD DECLINE_REASON
-        # =====================================================
-
-        if "decline_reason" not in submission_columns:
-
-            cursor.execute("""
-                ALTER TABLE submissions
-                ADD COLUMN decline_reason TEXT
-            """)
-
-
-        # =====================================================
-        # SUBMISSION ACCOUNTS
-        # =====================================================
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS submission_accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 submission_id INTEGER NOT NULL,
                 account_id INTEGER NOT NULL,
                 platform TEXT NOT NULL,
                 username TEXT NOT NULL,
                 views INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (submission_id)
-                    REFERENCES submissions(id)
+                FOREIGN KEY (submission_id) REFERENCES submissions(id)
             )
         """)
-
-
-        # =====================================================
-        # SETTINGS
-        # =====================================================
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
@@ -300,834 +74,306 @@ def setup_database():
             )
         """)
 
-
-        # =====================================================
-        # DEFAULT PORTAL STATUS
-        # =====================================================
-
         cursor.execute("""
-            INSERT OR IGNORE INTO settings (
-                key,
-                value
-            )
-            VALUES (
-                'submissions_open',
-                '1'
-            )
+            INSERT INTO settings (key, value)
+            VALUES ('submissions_open', '1')
+            ON CONFLICT (key) DO NOTHING
         """)
 
-
         connection.commit()
-
-        print(
-            "✅ Database setup completed!"
-        )
-
+        print("✅ PostgreSQL database setup completed!")
     except Exception as error:
-
         connection.rollback()
-
-        print(
-            "❌ Database setup error:"
-        )
-
-        print(error)
-
+        print("❌ Database setup error:", error)
         raise
-
     finally:
-
         connection.close()
 
-
-# =========================================================
-# ADD ACCOUNT
-# =========================================================
-
-def add_account(
-    discord_id,
-    discord_username,
-    platform,
-    username
-):
-
+def add_account(discord_id, discord_username, platform, username):
     connection = connect()
     cursor = connection.cursor()
-
     try:
-
-        print("")
-        print("➕ ===============================")
-        print("➕ ADD ACCOUNT")
-        print("➕ Database:", DATABASE)
-        print(
-            "➕ Discord ID:",
-            repr(str(discord_id))
-        )
-        print(
-            "➕ Discord Username:",
-            repr(str(discord_username))
-        )
-        print(
-            "➕ Platform:",
-            repr(str(platform))
-        )
-        print(
-            "➕ Username:",
-            repr(str(username))
-        )
-
         cursor.execute("""
             INSERT INTO accounts (
-                discord_id,
-                discord_username,
-                platform,
-                username,
-                created_at
+                discord_id, discord_username, platform, username, created_at
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
         """, (
-            str(discord_id),
-            str(discord_username),
-            str(platform),
-            str(username),
-            datetime.now().isoformat()
+            str(discord_id), str(discord_username), str(platform),
+            str(username), datetime.now().isoformat()
         ))
-
+        account_id = cursor.fetchone()[0]
         connection.commit()
-
-        account_id = cursor.lastrowid
-
-        print(
-            "✅ ACCOUNT SAVED"
-        )
-
-        print(
-            "✅ Account ID:",
-            account_id
-        )
-
-
-        # =================================================
-        # CONFIRM ACCOUNT AFTER INSERT
-        # =================================================
-
-        cursor.execute("""
-            SELECT
-                id,
-                discord_id,
-                discord_username,
-                platform,
-                username
-            FROM accounts
-            WHERE id = ?
-        """, (
-            account_id,
-        ))
-
-        saved_account = cursor.fetchone()
-
-        print(
-            "✅ SAVED ACCOUNT:",
-            saved_account
-        )
-
-        print(
-            "➕ ==============================="
-        )
-        print("")
-
+        print("✅ ACCOUNT SAVED:", account_id, str(discord_id), str(platform), str(username))
         return account_id
-
-    except Exception as error:
-
+    except Exception:
         connection.rollback()
-
-        print(
-            "❌ ADD ACCOUNT ERROR:",
-            error
-        )
-
         raise
-
     finally:
-
         connection.close()
-
-
-# =========================================================
-# GET USER ACCOUNTS
-# =========================================================
 
 def get_user_accounts(discord_id):
-
     connection = connect()
     cursor = connection.cursor()
-
     try:
-
-        print("")
-        print("🔎 ===============================")
-        print("🔎 GET USER ACCOUNTS")
-
-        print(
-            "🔎 Database:",
-            DATABASE
-        )
-
-        print(
-            "🔎 Discord ID:",
-            repr(str(discord_id))
-        )
-
-
-        # =================================================
-        # DEBUG - SHOW ALL ACCOUNTS
-        # =================================================
-
         cursor.execute("""
-            SELECT
-                id,
-                discord_id,
-                discord_username,
-                platform,
-                username
+            SELECT id, platform, username, created_at
             FROM accounts
+            WHERE discord_id = %s
             ORDER BY id ASC
-        """)
-
-        all_accounts = cursor.fetchall()
-
-        print(
-            "🔎 ALL ACCOUNTS IN THIS DATABASE:"
-        )
-
-        if all_accounts:
-
-            for account in all_accounts:
-
-                print(
-                    "   ",
-                    account
-                )
-
-        else:
-
-            print(
-                "   ❌ NO ACCOUNTS FOUND"
-            )
-
-
-        # =================================================
-        # GET CURRENT USER ACCOUNTS
-        # =================================================
-
-        cursor.execute("""
-            SELECT
-                id,
-                platform,
-                username,
-                created_at
-            FROM accounts
-            WHERE discord_id = ?
-            ORDER BY id ASC
-        """, (
-            str(discord_id),
-        ))
-
+        """, (str(discord_id),))
         accounts = cursor.fetchall()
-
-        print(
-            "🔎 MATCHING ACCOUNTS:",
-            accounts
-        )
-
-        print(
-            "🔎 ==============================="
-        )
-        print("")
-
+        print("🔎 MATCHING ACCOUNTS:", accounts)
         return accounts
-
     finally:
-
         connection.close()
-
-
-# =========================================================
-# GET ALL ACCOUNTS
-# =========================================================
 
 def get_all_accounts():
-
     connection = connect()
     cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT
-            id,
-            discord_id,
-            discord_username,
-            platform,
-            username,
-            created_at
-        FROM accounts
-        ORDER BY id ASC
-    """)
-
-    accounts = cursor.fetchall()
-
-    connection.close()
-
-    return accounts
-
-
-# =========================================================
-# DELETE ACCOUNT
-# =========================================================
-
-def delete_account(
-    account_id,
-    discord_id=None
-):
-
-    connection = connect()
-    cursor = connection.cursor()
-
     try:
-
-        if discord_id is not None:
-
-            cursor.execute("""
-                DELETE FROM accounts
-                WHERE id = ?
-                AND discord_id = ?
-            """, (
-                int(account_id),
-                str(discord_id)
-            ))
-
-        else:
-
-            cursor.execute("""
-                DELETE FROM accounts
-                WHERE id = ?
-            """, (
-                int(account_id),
-            ))
-
-        deleted = cursor.rowcount
-
-        connection.commit()
-
-        return deleted
-
-    except Exception:
-
-        connection.rollback()
-
-        raise
-
+        cursor.execute("""
+            SELECT id, discord_id, discord_username, platform, username, created_at
+            FROM accounts
+            ORDER BY id ASC
+        """)
+        return cursor.fetchall()
     finally:
-
         connection.close()
 
-
-# =========================================================
-# CURRENT WEEK START
-# =========================================================
-
-def get_current_week_start():
-
-    today = datetime.now().date()
-
-    monday = (
-        today
-        - timedelta(
-            days=today.weekday()
-        )
-    )
-
-    return monday.isoformat()
-
-
-# =========================================================
-# CREATE SUBMISSION
-# =========================================================
-
-def create_submission(
-    discord_id,
-    discord_username,
-    whop_username,
-    google_drive_link,
-    account_views
-):
-
+def delete_account(account_id, discord_id=None):
     connection = connect()
     cursor = connection.cursor()
-
     try:
+        if discord_id is not None:
+            cursor.execute(
+                "DELETE FROM accounts WHERE id = %s AND discord_id = %s",
+                (int(account_id), str(discord_id))
+            )
+        else:
+            cursor.execute(
+                "DELETE FROM accounts WHERE id = %s",
+                (int(account_id),)
+            )
+        deleted = cursor.rowcount
+        connection.commit()
+        return deleted
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
-        cursor.execute("""
-            SELECT value
-            FROM settings
-            WHERE key = 'submissions_open'
-        """)
+def get_current_week_start():
+    today = datetime.now().date()
+    monday = today - timedelta(days=today.weekday())
+    return monday.isoformat()
 
+def create_submission(
+    discord_id, discord_username, whop_username, google_drive_link, account_views
+):
+    connection = connect()
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            "SELECT value FROM settings WHERE key = 'submissions_open'"
+        )
         result = cursor.fetchone()
 
         if result and result[0] != "1":
+            raise PermissionError("Submissions are currently closed.")
 
-            raise PermissionError(
-                "Submissions are currently closed."
-            )
-
-
-        week_start = (
-            get_current_week_start()
-        )
-
-
-        total_views = sum(
-            int(account["views"])
-            for account in account_views
-        )
-
+        total_views = sum(int(account["views"]) for account in account_views)
 
         cursor.execute("""
             INSERT INTO submissions (
-                discord_id,
-                discord_username,
-                whop_username,
-                google_drive_link,
-                total_views,
-                status,
-                created_at,
-                week_start,
-                payout,
-                reviewed_at,
-                reviewed_by,
-                decline_reason
+                discord_id, discord_username, whop_username,
+                google_drive_link, total_views, status, created_at,
+                week_start, payout, reviewed_at, reviewed_by, decline_reason
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
         """, (
-            str(discord_id),
-            str(discord_username),
-            str(whop_username),
-            str(google_drive_link),
-            total_views,
-            "Pending",
-            datetime.now().isoformat(),
-            week_start,
-            None,
-            None,
-            None,
-            None
+            str(discord_id), str(discord_username), str(whop_username),
+            str(google_drive_link), total_views, "Pending",
+            datetime.now().isoformat(), get_current_week_start(),
+            None, None, None, None
         ))
-
-        submission_id = cursor.lastrowid
-
+        submission_id = cursor.fetchone()[0]
 
         for account in account_views:
-
             cursor.execute("""
                 INSERT INTO submission_accounts (
-                    submission_id,
-                    account_id,
-                    platform,
-                    username,
-                    views
+                    submission_id, account_id, platform, username, views
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s)
             """, (
-                submission_id,
-                account["account_id"],
-                account["platform"],
-                account["username"],
-                int(account["views"])
+                submission_id, account["account_id"], account["platform"],
+                account["username"], int(account["views"])
             ))
 
-
         connection.commit()
-
         return submission_id
-
     except Exception:
-
         connection.rollback()
-
         raise
-
     finally:
-
         connection.close()
-
-
-# =========================================================
-# GET SINGLE SUBMISSION
-# =========================================================
 
 def get_submission(submission_id):
-
     connection = connect()
     cursor = connection.cursor()
+    try:
+        cursor.execute("""
+            SELECT id, discord_id, discord_username, whop_username,
+                   google_drive_link, total_views, status, created_at,
+                   week_start, payout, reviewed_at, reviewed_by, decline_reason
+            FROM submissions WHERE id = %s
+        """, (int(submission_id),))
+        submission = cursor.fetchone()
 
-    cursor.execute("""
-        SELECT
-            id,
-            discord_id,
-            discord_username,
-            whop_username,
-            google_drive_link,
-            total_views,
-            status,
-            created_at,
-            week_start,
-            payout,
-            reviewed_at,
-            reviewed_by,
-            decline_reason
-        FROM submissions
-        WHERE id = ?
-    """, (
-        int(submission_id),
-    ))
+        if not submission:
+            return None
 
-    submission = cursor.fetchone()
+        cursor.execute("""
+            SELECT account_id, platform, username, views
+            FROM submission_accounts
+            WHERE submission_id = %s
+            ORDER BY id ASC
+        """, (int(submission_id),))
+        accounts = cursor.fetchall()
 
-    if not submission:
-
+        return {
+            "id": submission[0],
+            "discord_id": submission[1],
+            "discord_username": submission[2],
+            "whop_username": submission[3],
+            "google_drive_link": submission[4],
+            "total_views": submission[5],
+            "status": submission[6],
+            "created_at": submission[7],
+            "week_start": submission[8],
+            "payout": submission[9],
+            "reviewed_at": submission[10],
+            "reviewed_by": submission[11],
+            "decline_reason": submission[12],
+            "accounts": accounts
+        }
+    finally:
         connection.close()
-
-        return None
-
-
-    cursor.execute("""
-        SELECT
-            account_id,
-            platform,
-            username,
-            views
-        FROM submission_accounts
-        WHERE submission_id = ?
-        ORDER BY id ASC
-    """, (
-        int(submission_id),
-    ))
-
-    accounts = cursor.fetchall()
-
-    connection.close()
-
-
-    return {
-
-        "id":
-            submission[0],
-
-        "discord_id":
-            submission[1],
-
-        "discord_username":
-            submission[2],
-
-        "whop_username":
-            submission[3],
-
-        "google_drive_link":
-            submission[4],
-
-        "total_views":
-            submission[5],
-
-        "status":
-            submission[6],
-
-        "created_at":
-            submission[7],
-
-        "week_start":
-            submission[8],
-
-        "payout":
-            submission[9],
-
-        "reviewed_at":
-            submission[10],
-
-        "reviewed_by":
-            submission[11],
-
-        "decline_reason":
-            submission[12],
-
-        "accounts":
-            accounts
-
-    }
-
-
-# =========================================================
-# GET PENDING SUBMISSIONS
-# =========================================================
 
 def get_pending_submissions():
-
     connection = connect()
     cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT
-            id,
-            discord_id,
-            discord_username,
-            whop_username,
-            google_drive_link,
-            total_views,
-            status,
-            created_at,
-            week_start,
-            payout,
-            reviewed_at,
-            reviewed_by,
-            decline_reason
-        FROM submissions
-        WHERE status = 'Pending'
-        ORDER BY id ASC
-    """)
-
-    submissions = cursor.fetchall()
-
-    connection.close()
-
-    return submissions
-
-
-# =========================================================
-# GET USER SUBMISSIONS
-# =========================================================
+    try:
+        cursor.execute("""
+            SELECT id, discord_id, discord_username, whop_username,
+                   google_drive_link, total_views, status, created_at,
+                   week_start, payout, reviewed_at, reviewed_by, decline_reason
+            FROM submissions WHERE status = 'Pending' ORDER BY id ASC
+        """)
+        return cursor.fetchall()
+    finally:
+        connection.close()
 
 def get_user_submissions(discord_id):
-
     connection = connect()
     cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT
-            id,
-            whop_username,
-            google_drive_link,
-            total_views,
-            status,
-            created_at,
-            week_start,
-            payout,
-            decline_reason
-        FROM submissions
-        WHERE discord_id = ?
-        ORDER BY id DESC
-    """, (
-        str(discord_id),
-    ))
-
-    submissions = cursor.fetchall()
-
-    connection.close()
-
-    return submissions
-
-
-# =========================================================
-# GET ALL SUBMISSIONS
-# =========================================================
+    try:
+        cursor.execute("""
+            SELECT id, whop_username, google_drive_link, total_views,
+                   status, created_at, week_start, payout, decline_reason
+            FROM submissions
+            WHERE discord_id = %s
+            ORDER BY id DESC
+        """, (str(discord_id),))
+        return cursor.fetchall()
+    finally:
+        connection.close()
 
 def get_all_submissions():
-
     connection = connect()
     cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT
-            id,
-            discord_id,
-            discord_username,
-            whop_username,
-            google_drive_link,
-            total_views,
-            status,
-            created_at,
-            week_start,
-            payout,
-            reviewed_at,
-            reviewed_by,
-            decline_reason
-        FROM submissions
-        ORDER BY id DESC
-    """)
-
-    submissions = cursor.fetchall()
-
-    connection.close()
-
-    return submissions
-
-
-# =========================================================
-# GET SUBMISSIONS BY WEEK
-# =========================================================
+    try:
+        cursor.execute("""
+            SELECT id, discord_id, discord_username, whop_username,
+                   google_drive_link, total_views, status, created_at,
+                   week_start, payout, reviewed_at, reviewed_by, decline_reason
+            FROM submissions ORDER BY id DESC
+        """)
+        return cursor.fetchall()
+    finally:
+        connection.close()
 
 def get_submissions_by_week(week_start):
-
     connection = connect()
     cursor = connection.cursor()
-
-    cursor.execute("""
-        SELECT
-            id,
-            discord_id,
-            discord_username,
-            whop_username,
-            google_drive_link,
-            total_views,
-            status,
-            created_at,
-            week_start,
-            payout,
-            reviewed_at,
-            reviewed_by,
-            decline_reason
-        FROM submissions
-        WHERE week_start = ?
-        ORDER BY id DESC
-    """, (
-        str(week_start),
-    ))
-
-    submissions = cursor.fetchall()
-
-    connection.close()
-
-    return submissions
-
-
-# =========================================================
-# UPDATE SUBMISSION STATUS
-# =========================================================
+    try:
+        cursor.execute("""
+            SELECT id, discord_id, discord_username, whop_username,
+                   google_drive_link, total_views, status, created_at,
+                   week_start, payout, reviewed_at, reviewed_by, decline_reason
+            FROM submissions
+            WHERE week_start = %s
+            ORDER BY id DESC
+        """, (str(week_start),))
+        return cursor.fetchall()
+    finally:
+        connection.close()
 
 def update_submission_status(
-    submission_id,
-    status,
-    payout=None,
-    reviewed_by=None,
-    decline_reason=None
+    submission_id, status, payout=None, reviewed_by=None, decline_reason=None
 ):
-
     connection = connect()
     cursor = connection.cursor()
-
     try:
-
         cursor.execute("""
             UPDATE submissions
-            SET
-                status = ?,
-                payout = ?,
-                reviewed_at = ?,
-                reviewed_by = ?,
-                decline_reason = ?
-            WHERE id = ?
+            SET status = %s, payout = %s, reviewed_at = %s,
+                reviewed_by = %s, decline_reason = %s
+            WHERE id = %s
         """, (
-            str(status),
-            payout,
-            datetime.now().isoformat(),
-            str(reviewed_by)
-            if reviewed_by
-            else None,
-            decline_reason,
-            int(submission_id)
+            str(status), payout, datetime.now().isoformat(),
+            str(reviewed_by) if reviewed_by else None,
+            decline_reason, int(submission_id)
         ))
-
         updated = cursor.rowcount
-
         connection.commit()
-
         return updated
-
     except Exception:
-
         connection.rollback()
-
         raise
-
     finally:
-
         connection.close()
-
-
-# =========================================================
-# OPEN / CLOSE SUBMISSIONS
-# =========================================================
 
 def set_submissions_status(is_open):
-
     connection = connect()
     cursor = connection.cursor()
-
     try:
-
-        value = (
-            "1"
-            if is_open
-            else "0"
-        )
-
+        value = "1" if is_open else "0"
         cursor.execute("""
-            INSERT OR REPLACE INTO settings (
-                key,
-                value
-            )
-            VALUES (
-                'submissions_open',
-                ?
-            )
-        """, (
-            value,
-        ))
-
+            INSERT INTO settings (key, value)
+            VALUES ('submissions_open', %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """, (value,))
         connection.commit()
-
     except Exception:
-
         connection.rollback()
-
         raise
-
     finally:
-
         connection.close()
 
-
-# =========================================================
-# CHECK SUBMISSIONS STATUS
-# =========================================================
-
 def are_submissions_open():
-
     connection = connect()
     cursor = connection.cursor()
+    try:
+        cursor.execute(
+            "SELECT value FROM settings WHERE key = 'submissions_open'"
+        )
+        result = cursor.fetchone()
+        return True if not result else result[0] == "1"
+    finally:
+        connection.close()
 
-    cursor.execute("""
-        SELECT value
-        FROM settings
-        WHERE key = 'submissions_open'
-    """)
-
-    result = cursor.fetchone()
-
-    connection.close()
-
-    if not result:
-
-        return True
-
-    return result[0] == "1"
+setup_database()
