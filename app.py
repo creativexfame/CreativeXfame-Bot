@@ -33,7 +33,6 @@ load_dotenv(
     os.path.join(BASE_DIR, ".env")
 )
 
-
 import database
 
 
@@ -61,9 +60,30 @@ DISCORD_CLIENT_SECRET = os.getenv(
     "DISCORD_CLIENT_SECRET"
 )
 
-REDIRECT_URI = (
-    "http://127.0.0.1:5000/callback"
+
+# =========================================================
+# REDIRECT URI
+# =========================================================
+#
+# Render:
+# DISCORD_REDIRECT_URI =
+# https://xfame-bot.onrender.com/callback
+#
+# Local PC:
+# http://127.0.0.1:5000/callback
+#
+# Render Environment Variable takes priority.
+# =========================================================
+
+REDIRECT_URI = os.getenv(
+    "DISCORD_REDIRECT_URI",
+   "https://xfame-bot.onrender.com/callback"
 )
+
+
+# =========================================================
+# DISCORD URLS
+# =========================================================
 
 DISCORD_AUTHORIZE_URL = (
     "https://discord.com/oauth2/authorize"
@@ -105,9 +125,9 @@ def home():
             "/accounts"
         )
 
-
     return """
     <!DOCTYPE html>
+
     <html>
 
     <head>
@@ -177,7 +197,17 @@ def login():
         <h2>❌ Configuration Error</h2>
 
         <p>
-            DISCORD_CLIENT_ID is missing from .env
+            DISCORD_CLIENT_ID is missing.
+        </p>
+        """
+
+    if not REDIRECT_URI:
+
+        return """
+        <h2>❌ Configuration Error</h2>
+
+        <p>
+            DISCORD_REDIRECT_URI is missing.
         </p>
         """
 
@@ -249,6 +279,10 @@ def callback():
     )
 
 
+    # =====================================================
+    # DISCORD ERROR
+    # =====================================================
+
     if oauth_error:
 
         return f"""
@@ -272,6 +306,10 @@ def callback():
         """
 
 
+    # =====================================================
+    # CODE CHECK
+    # =====================================================
+
     if not code:
 
         return """
@@ -288,6 +326,10 @@ def callback():
         </a>
         """
 
+
+    # =====================================================
+    # STATE CHECK
+    # =====================================================
 
     if (
         not returned_state
@@ -315,6 +357,10 @@ def callback():
     )
 
 
+    # =====================================================
+    # CLIENT ID CHECK
+    # =====================================================
+
     if not DISCORD_CLIENT_ID:
 
         return """
@@ -324,6 +370,10 @@ def callback():
         """
 
 
+    # =====================================================
+    # CLIENT SECRET CHECK
+    # =====================================================
+
     if not DISCORD_CLIENT_SECRET:
 
         return """
@@ -332,6 +382,10 @@ def callback():
         </h2>
         """
 
+
+    # =====================================================
+    # BASIC AUTH
+    # =====================================================
 
     credentials = (
         f"{DISCORD_CLIENT_ID}:"
@@ -345,6 +399,10 @@ def callback():
         ).decode("utf-8")
     )
 
+
+    # =====================================================
+    # TOKEN REQUEST
+    # =====================================================
 
     token_data = urllib.parse.urlencode({
 
@@ -383,6 +441,10 @@ def callback():
 
     )
 
+
+    # =====================================================
+    # TOKEN EXCHANGE
+    # =====================================================
 
     try:
 
@@ -480,6 +542,10 @@ def callback():
         """
 
 
+    # =====================================================
+    # ACCESS TOKEN
+    # =====================================================
+
     access_token = token_response.get(
         "access_token"
     )
@@ -497,6 +563,10 @@ def callback():
         </a>
         """
 
+
+    # =====================================================
+    # GET DISCORD USER
+    # =====================================================
 
     user_request = urllib.request.Request(
 
@@ -551,6 +621,10 @@ def callback():
         </a>
         """
 
+
+    # =====================================================
+    # SAVE USER SESSION
+    # =====================================================
 
     session["discord_id"] = str(
         user_data.get("id")
@@ -635,8 +709,7 @@ def submit():
 
 
     # =====================================================
-    # IMPORTANT:
-    # CHECK PORTAL STATUS EVERY TIME
+    # PORTAL STATUS
     # =====================================================
 
     if not database.are_submissions_open():
@@ -747,12 +820,8 @@ def submit():
 
 
     # =====================================================
-    # POST
-    # =====================================================
-
     # SECOND STATUS CHECK
-    # Prevents submitting if portal was closed
-    # between page load and button click.
+    # =====================================================
 
     if not database.are_submissions_open():
 
@@ -767,6 +836,10 @@ def submit():
         </p>
         """
 
+
+    # =====================================================
+    # FORM DATA
+    # =====================================================
 
     whop_username = (
         request.form
@@ -822,6 +895,10 @@ def submit():
         )
 
 
+    # =====================================================
+    # ACCOUNT VIEWS
+    # =====================================================
+
     account_views = []
 
 
@@ -861,6 +938,7 @@ def submit():
 
 
             if views < 0:
+
                 raise ValueError
 
 
@@ -903,7 +981,7 @@ def submit():
 
 
     # =====================================================
-    # CREATE
+    # CREATE SUBMISSION
     # =====================================================
 
     try:
@@ -938,7 +1016,12 @@ def submit():
         """
 
 
-    except Exception:
+    except Exception as e:
+
+        print(
+            "SUBMISSION ERROR:",
+            e
+        )
 
         return render_template(
 
@@ -955,6 +1038,10 @@ def submit():
 
         )
 
+
+    # =====================================================
+    # SUCCESS
+    # =====================================================
 
     submission = (
         database.get_submission(
@@ -987,13 +1074,13 @@ def logout():
 
 
 # =========================================================
-# RUN
+# RUN LOCAL
 # =========================================================
 
 if __name__ == "__main__":
-
+    port = int(os.getenv("PORT", 5000))
     app.run(
-        host="127.0.0.1",
-        port=5000,
-        debug=True
+        host="0.0.0.0",
+        port=port,
+        debug=False
     )
