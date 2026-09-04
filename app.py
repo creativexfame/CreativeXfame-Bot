@@ -7,6 +7,7 @@ import json
 import secrets
 import base64
 import html
+import time
 
 from flask import Flask, redirect, request, session, render_template
 from dotenv import load_dotenv
@@ -21,7 +22,9 @@ BASE_DIR = os.path.dirname(
     os.path.abspath(__file__)
 )
 
-sys.path.insert(0, BASE_DIR)
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+
+sys.path.insert(0, PROJECT_ROOT)
 
 
 # =========================================================
@@ -39,17 +42,25 @@ load_dotenv(
 
 import database
 
-database.setup_database()
 
 # =========================================================
 # INITIALIZE DATABASE
 # =========================================================
 
 try:
+
     database.setup_database()
-    print("✅ Database initialized successfully.")
+
+    print(
+        "✅ Database initialized successfully."
+    )
+
 except Exception as error:
-    print("❌ Database initialization failed:")
+
+    print(
+        "❌ Database initialization failed:"
+    )
+
     print(error)
 
 
@@ -115,16 +126,360 @@ DISCORD_USER_URL = (
 
 
 # =========================================================
+# DISCORD REQUEST SETTINGS
+# =========================================================
+
+DISCORD_USER_AGENT = (
+    "CreativeXfame-Portal/1.0"
+)
+
+DISCORD_TIMEOUT = 15
+
+# Maximum automatic retries for temporary 429 responses.
+DISCORD_MAX_RETRIES = 3
+
+
+# =========================================================
 # HELPER
 # =========================================================
 
 def safe_text(value):
 
     if value is None:
+
         return ""
 
     return html.escape(
         str(value)
+    )
+
+
+# =========================================================
+# DISCORD HTTP ERROR PAGE
+# =========================================================
+
+def discord_error_page(
+    status_code,
+    error_name,
+    description
+):
+
+    return f"""
+    <!DOCTYPE html>
+
+    <html>
+
+    <head>
+
+        <title>
+            Discord Login Error
+        </title>
+
+        <style>
+
+            body {{
+                font-family: Arial, sans-serif;
+                max-width: 700px;
+                margin: 80px auto;
+                padding: 20px;
+                text-align: center;
+            }}
+
+            .box {{
+                border: 1px solid #ddd;
+                border-radius: 12px;
+                padding: 30px;
+            }}
+
+            a {{
+                display: inline-block;
+                margin-top: 20px;
+                padding: 12px 20px;
+                text-decoration: none;
+                border-radius: 8px;
+                background: #5865F2;
+                color: white;
+            }}
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <div class="box">
+
+            <h2>
+                ❌ Discord Login Failed
+            </h2>
+
+            <p>
+                <strong>
+                    HTTP Status:
+                </strong>
+                {safe_text(status_code)}
+            </p>
+
+            <p>
+                <strong>
+                    Discord Error:
+                </strong>
+                {safe_text(error_name)}
+            </p>
+
+            <p>
+                <strong>
+                    Description:
+                </strong>
+                {safe_text(description)}
+            </p>
+
+            {"<p><strong>⚠️ Discord rate limit detected. Please wait a few minutes before trying again.</strong></p>" if status_code == 429 else ""}
+
+            <a href="/">
+                Back to Portal
+            </a>
+
+        </div>
+
+    </body>
+
+    </html>
+    """
+
+
+# =========================================================
+# DISCORD JSON REQUEST
+# =========================================================
+
+def discord_request(
+    url,
+    method="GET",
+    data=None,
+    headers=None
+):
+
+    if headers is None:
+
+        headers = {}
+
+
+    headers = dict(
+        headers
+    )
+
+
+    headers.setdefault(
+        "User-Agent",
+        DISCORD_USER_AGENT
+    )
+
+
+    for attempt in range(
+        DISCORD_MAX_RETRIES + 1
+    ):
+
+        try:
+
+            req = urllib.request.Request(
+
+                url,
+
+                data=data,
+
+                headers=headers,
+
+                method=method
+
+            )
+
+
+            with urllib.request.urlopen(
+                req,
+                timeout=DISCORD_TIMEOUT
+            ) as response:
+
+                response_body = (
+                    response
+                    .read()
+                    .decode("utf-8")
+                )
+
+
+                if not response_body:
+
+                    return (
+                        response.status,
+                        {}
+                    )
+
+
+                try:
+
+                    parsed = json.loads(
+                        response_body
+                    )
+
+                except json.JSONDecodeError:
+
+                    parsed = {
+                        "raw": response_body
+                    }
+
+
+                return (
+                    response.status,
+                    parsed
+                )
+
+
+        except urllib.error.HTTPError as error:
+
+            # =================================================
+            # RATE LIMIT
+            # =================================================
+
+            if error.code == 429:
+
+                retry_after = None
+
+                try:
+
+                    body = (
+                        error.read()
+                        .decode("utf-8")
+                    )
+
+                    error_data = json.loads(
+                        body
+                    )
+
+                    retry_after = (
+                        error_data.get(
+                            "retry_after"
+                        )
+                    )
+
+                except Exception:
+
+                    pass
+
+
+                # Try Retry-After header too.
+
+                if retry_after is None:
+
+                    header_value = (
+                        error.headers.get(
+                            "Retry-After"
+                        )
+                    )
+
+                    if header_value:
+
+                        try:
+
+                            retry_after = float(
+                                header_value
+                            )
+
+                        except Exception:
+
+                            retry_after = None
+
+
+                if retry_after is None:
+
+                    retry_after = 2
+
+
+                # Never sleep for an unreasonable
+                # amount of time inside a web request.
+
+                retry_after = min(
+                    max(
+                        float(retry_after),
+                        1
+                    ),
+                    10
+                )
+
+
+                print(
+                    f"⚠️ Discord rate limit "
+                    f"(429). Retry after "
+                    f"{retry_after}s."
+                )
+
+
+                if attempt < DISCORD_MAX_RETRIES:
+
+                    time.sleep(
+                        retry_after
+                    )
+
+                    continue
+
+
+                return (
+                    429,
+                    {
+                        "message":
+                            "Discord API rate limit exceeded.",
+                        "retry_after":
+                            retry_after
+                    }
+                )
+
+
+            # =================================================
+            # OTHER HTTP ERROR
+            # =================================================
+
+            try:
+
+                body = (
+                    error.read()
+                    .decode("utf-8")
+                )
+
+                error_data = json.loads(
+                    body
+                )
+
+            except Exception:
+
+                error_data = {}
+
+
+            return (
+                error.code,
+                error_data
+            )
+
+
+        except Exception as error:
+
+            print(
+                "❌ Discord request error:",
+                repr(error)
+            )
+
+            return (
+                0,
+                {
+                    "message":
+                        str(error)
+                }
+            )
+
+
+    return (
+        0,
+        {
+            "message":
+                "Discord request failed."
+        }
     )
 
 
@@ -141,13 +496,17 @@ def home():
             "/accounts"
         )
 
+
     return """
     <!DOCTYPE html>
+
     <html>
 
     <head>
 
-        <title>CreativeXfame Portal</title>
+        <title>
+            CreativeXfame Portal
+        </title>
 
         <style>
 
@@ -207,7 +566,9 @@ def login():
     if not DISCORD_CLIENT_ID:
 
         return """
-        <h2>❌ Configuration Error</h2>
+        <h2>
+            ❌ Configuration Error
+        </h2>
 
         <p>
             DISCORD_CLIENT_ID is missing from
@@ -223,7 +584,9 @@ def login():
     if not DISCORD_CLIENT_SECRET:
 
         return """
-        <h2>❌ Configuration Error</h2>
+        <h2>
+            ❌ Configuration Error
+        </h2>
 
         <p>
             DISCORD_CLIENT_SECRET is missing from
@@ -239,7 +602,9 @@ def login():
     if not REDIRECT_URI:
 
         return """
-        <h2>❌ Configuration Error</h2>
+        <h2>
+            ❌ Configuration Error
+        </h2>
 
         <p>
             DISCORD_REDIRECT_URI is missing.
@@ -251,10 +616,20 @@ def login():
         """
 
 
-    state = secrets.token_urlsafe(32)
+    # =====================================================
+    # CREATE OAUTH STATE
+    # =====================================================
+
+    state = secrets.token_urlsafe(
+        32
+    )
 
     session["oauth_state"] = state
 
+
+    # =====================================================
+    # DISCORD AUTHORIZE URL
+    # =====================================================
 
     params = {
 
@@ -272,15 +647,20 @@ def login():
 
         "state":
             state
+
     }
 
 
     authorization_url = (
+
         DISCORD_AUTHORIZE_URL
+
         + "?"
+
         + urllib.parse.urlencode(
             params
         )
+
     )
 
 
@@ -303,62 +683,46 @@ def callback():
         "code"
     )
 
+
     returned_state = request.args.get(
         "state"
     )
+
 
     saved_state = session.get(
         "oauth_state"
     )
 
+
     oauth_error = request.args.get(
         "error"
     )
 
-    oauth_error_description = request.args.get(
-        "error_description"
+
+    oauth_error_description = (
+        request.args.get(
+            "error_description"
+        )
     )
 
 
     # =====================================================
-    # DISCORD ERROR
+    # DISCORD OAUTH ERROR
     # =====================================================
 
     if oauth_error:
 
-        return f"""
-        <!DOCTYPE html>
+        return discord_error_page(
 
-        <html>
+            400,
 
-        <head>
-            <title>Discord Login Error</title>
-        </head>
+            oauth_error,
 
-        <body>
+            oauth_error_description
+            or
+            "Discord authorization was not completed."
 
-            <h2>
-                ❌ Discord Authorization Failed
-            </h2>
-
-            <p>
-                <strong>Error:</strong>
-                {safe_text(oauth_error)}
-            </p>
-
-            <p>
-                <strong>Description:</strong>
-                {safe_text(oauth_error_description)}
-            </p>
-
-            <a href="/">
-                Back to Portal
-            </a>
-
-        </body>
-
-        </html>
-        """
+        )
 
 
     # =====================================================
@@ -391,6 +755,12 @@ def callback():
         or returned_state != saved_state
     ):
 
+        session.pop(
+            "oauth_state",
+            None
+        )
+
+
         return """
         <h2>
             ❌ Security Check Failed
@@ -406,6 +776,10 @@ def callback():
         """
 
 
+    # =====================================================
+    # REMOVE USED STATE
+    # =====================================================
+
     session.pop(
         "oauth_state",
         None
@@ -417,15 +791,26 @@ def callback():
     # =====================================================
 
     credentials = (
+
         f"{DISCORD_CLIENT_ID}:"
+
         f"{DISCORD_CLIENT_SECRET}"
+
     )
 
 
     encoded_credentials = (
+
         base64.b64encode(
-            credentials.encode("utf-8")
-        ).decode("utf-8")
+
+            credentials.encode(
+                "utf-8"
+            )
+
+        ).decode(
+            "utf-8"
+        )
+
     )
 
 
@@ -440,134 +825,149 @@ def callback():
         "redirect_uri":
             REDIRECT_URI
 
-    }).encode("utf-8")
-
-
-    token_request = urllib.request.Request(
-
-        DISCORD_TOKEN_URL,
-
-        data=token_data,
-
-        headers={
-
-            "Content-Type":
-                "application/x-www-form-urlencoded",
-
-            "Authorization":
-                f"Basic {encoded_credentials}",
-
-            "User-Agent":
-                "CreativeXfame-Portal/1.0"
-
-        },
-
-        method="POST"
+    }).encode(
+        "utf-8"
     )
 
 
-    try:
+    token_headers = {
 
-        with urllib.request.urlopen(
-            token_request,
-            timeout=15
-        ) as response:
+        "Content-Type":
+            "application/x-www-form-urlencoded",
 
-            raw_response = (
-                response
-                .read()
-                .decode("utf-8")
+        "Authorization":
+            f"Basic {encoded_credentials}",
+
+        "User-Agent":
+            DISCORD_USER_AGENT
+
+    }
+
+
+    print(
+        "🔵 Discord OAuth token exchange started."
+    )
+
+
+    token_status, token_response = (
+        discord_request(
+
+            DISCORD_TOKEN_URL,
+
+            method="POST",
+
+            data=token_data,
+
+            headers=token_headers
+
+        )
+    )
+
+
+    # =====================================================
+    # TOKEN RATE LIMIT
+    # =====================================================
+
+    if token_status == 429:
+
+        print(
+            "⚠️ Discord token endpoint "
+            "returned HTTP 429."
+        )
+
+
+        return discord_error_page(
+
+            429,
+
+            "Rate Limited",
+
+            "Discord is temporarily rate-limiting "
+            "the portal. Please wait a few minutes "
+            "and try logging in again."
+
+        )
+
+
+    # =====================================================
+    # TOKEN OTHER ERROR
+    # =====================================================
+
+    if token_status < 200 or token_status >= 300:
+
+        error_name = (
+            token_response.get(
+                "error",
+                "Unknown error"
             )
-
-            token_response = json.loads(
-                raw_response
+            if isinstance(
+                token_response,
+                dict
             )
-
-
-    except urllib.error.HTTPError as e:
-
-        try:
-
-            error_body = (
-                e.read()
-                .decode("utf-8")
-            )
-
-            error_data = json.loads(
-                error_body
-            )
-
-        except Exception:
-
-            error_data = {}
-
-
-        error_name = error_data.get(
-            "error",
+            else
             "Unknown error"
         )
 
 
         error_description = (
-            error_data.get(
+
+            token_response.get(
                 "error_description",
-                error_data.get(
+
+                token_response.get(
                     "message",
                     "No description provided."
                 )
+
             )
+
+            if isinstance(
+                token_response,
+                dict
+            )
+
+            else
+            "No description provided."
+
         )
 
 
-        return f"""
-        <h1>
-            ❌ Token Exchange Failed
-        </h1>
-
-        <p>
-            HTTP Status:
-            <strong>{e.code}</strong>
-        </p>
-
-        <p>
-            Discord Error:
-            {safe_text(error_name)}
-        </p>
-
-        <p>
-            Description:
-            {safe_text(error_description)}
-        </p>
-
-        <a href="/">
-            Back to Portal
-        </a>
-        """
+        print(
+            "❌ Discord token exchange failed:",
+            token_status,
+            token_response
+        )
 
 
-    except Exception as e:
+        return discord_error_page(
 
-        return f"""
-        <h2>
-            ❌ Unexpected Error
-        </h2>
+            token_status,
 
-        <p>
-            {safe_text(e)}
-        </p>
+            error_name,
 
-        <a href="/">
-            Back to Portal
-        </a>
-        """
+            error_description
+
+        )
 
 
     # =====================================================
     # ACCESS TOKEN
     # =====================================================
 
-    access_token = token_response.get(
-        "access_token"
+    access_token = (
+
+        token_response.get(
+            "access_token"
+        )
+
+        if isinstance(
+            token_response,
+            dict
+        )
+
+        else
+        None
+
     )
 
 
@@ -592,51 +992,118 @@ def callback():
     # GET DISCORD USER
     # =====================================================
 
-    user_request = urllib.request.Request(
+    user_headers = {
 
-        DISCORD_USER_URL,
+        "Authorization":
+            f"Bearer {access_token}",
 
-        headers={
+        "User-Agent":
+            DISCORD_USER_AGENT
 
-            "Authorization":
-                f"Bearer {access_token}",
+    }
 
-            "User-Agent":
-                "CreativeXfame-Portal/1.0"
 
-        },
-
-        method="GET"
+    print(
+        "🔵 Requesting Discord user information."
     )
 
 
-    try:
+    user_status, user_data = (
+        discord_request(
 
-        with urllib.request.urlopen(
-            user_request,
-            timeout=15
-        ) as response:
+            DISCORD_USER_URL,
 
-            user_response = (
-                response
-                .read()
-                .decode("utf-8")
+            method="GET",
+
+            headers=user_headers
+
+        )
+    )
+
+
+    # =====================================================
+    # USER RATE LIMIT
+    # =====================================================
+
+    if user_status == 429:
+
+        print(
+            "⚠️ Discord user endpoint "
+            "returned HTTP 429."
+        )
+
+
+        return discord_error_page(
+
+            429,
+
+            "Rate Limited",
+
+            "Discord is temporarily rate-limiting "
+            "the portal. Please wait a few minutes "
+            "and try logging in again."
+
+        )
+
+
+    # =====================================================
+    # USER OTHER ERROR
+    # =====================================================
+
+    if user_status < 200 or user_status >= 300:
+
+        error_message = (
+
+            user_data.get(
+                "message",
+                "Could not retrieve Discord user."
             )
 
-            user_data = json.loads(
-                user_response
+            if isinstance(
+                user_data,
+                dict
             )
 
+            else
+            "Could not retrieve Discord user."
 
-    except Exception as e:
+        )
 
-        return f"""
+
+        print(
+            "❌ Discord user request failed:",
+            user_status,
+            user_data
+        )
+
+
+        return discord_error_page(
+
+            user_status,
+
+            "User Request Failed",
+
+            error_message
+
+        )
+
+
+    # =====================================================
+    # VALIDATE USER RESPONSE
+    # =====================================================
+
+    if not isinstance(
+        user_data,
+        dict
+    ):
+
+        return """
         <h2>
             ❌ Discord User Error
         </h2>
 
         <p>
-            {safe_text(e)}
+            Invalid response received from Discord.
         </p>
 
         <a href="/">
@@ -649,8 +1116,10 @@ def callback():
     # SAVE DISCORD USER
     # =====================================================
 
-    discord_user_id = user_data.get(
-        "id"
+    discord_user_id = (
+        user_data.get(
+            "id"
+        )
     )
 
 
@@ -678,12 +1147,26 @@ def callback():
 
     session["discord_username"] = (
 
-        user_data.get("global_name")
+        user_data.get(
+            "global_name"
+        )
 
-        or user_data.get("username")
+        or
 
-        or "Discord User"
+        user_data.get(
+            "username"
+        )
 
+        or
+
+        "Discord User"
+
+    )
+
+
+    print(
+        "✅ Discord login successful:",
+        discord_user_id
     )
 
 
@@ -710,9 +1193,13 @@ def accounts():
         "discord_id"
     ]
 
-    print("🌐 PORTAL DISCORD ID:", discord_id)
-    print("🌐 PORTAL ACCOUNTS:", database.get_user_accounts(discord_id))
-   
+
+    print(
+        "🌐 PORTAL DISCORD ID:",
+        discord_id
+    )
+
+
     try:
 
         user_accounts = (
@@ -721,12 +1208,20 @@ def accounts():
             )
         )
 
+
+        print(
+            "🌐 PORTAL ACCOUNTS:",
+            user_accounts
+        )
+
+
     except Exception as error:
 
         print(
             "❌ Accounts database error:",
             error
         )
+
 
         return """
         <h2>
@@ -978,6 +1473,7 @@ def submit():
 
 
             if raw_views == "":
+
                 raw_views = "0"
 
 
@@ -987,6 +1483,7 @@ def submit():
 
 
             if views < 0:
+
                 raise ValueError
 
 
@@ -1070,6 +1567,7 @@ def submit():
             "❌ Submission error:",
             error
         )
+
 
         return render_template(
 
